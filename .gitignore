@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Streamlit
+.streamlit/
+
+# Generated results (run scripts to regenerate)
+autohdr-kernel-demo/demo/agent_results.json
+autohdr-kernel-demo/demo/batch_results.json
+autohdr-kernel-demo/demo/bench_results.json
