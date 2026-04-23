@@ -113,7 +113,7 @@ def batched_process(images: list[torch.Tensor]) -> tuple[list[torch.Tensor], flo
 # torch.compile version of the batched pipeline
 try:
     compiled_batch = torch.compile(batched_process)
-except (RuntimeError, AttributeError, ImportError) as exc:
+except (RuntimeError, AttributeError, ImportError, TypeError) as exc:
     print(f"[WARNING] torch.compile not available ({exc}); using eager batched_process.")
     compiled_batch = batched_process
 
@@ -139,27 +139,36 @@ if __name__ == "__main__":
         for _ in range(N_WARMUP):
             sequential_process(images)
             batched_process(images)
+            compiled_batch(images)
 
         # Timed runs
         seq_times = []
         bat_times = []
+        com_times = []
         for _ in range(N_RUNS):
             _, t_seq = sequential_process(images)
             _, t_bat = batched_process(images)
+            _, t_com = compiled_batch(images)
             seq_times.append(t_seq)
             bat_times.append(t_bat)
+            com_times.append(t_com)
 
         avg_seq = sum(seq_times) / N_RUNS
         avg_bat = sum(bat_times) / N_RUNS
+        avg_com = sum(com_times) / N_RUNS
         throughput_gain = avg_seq / avg_bat if avg_bat > 0 else float("inf")
+        compiled_gain = avg_seq / avg_com if avg_com > 0 else float("inf")
 
         results_data.append({
             "n_photos": n,
             "sequential_ms": round(avg_seq, 2),
             "batched_ms": round(avg_bat, 2),
+            "compiled_ms": round(avg_com, 2),
             "per_photo_sequential_ms": round(avg_seq / n, 2),
             "per_photo_batched_ms": round(avg_bat / n, 2),
+            "per_photo_compiled_ms": round(avg_com / n, 2),
             "throughput_gain": round(throughput_gain, 2),
+            "compiled_gain": round(compiled_gain, 2),
         })
 
     # Print table

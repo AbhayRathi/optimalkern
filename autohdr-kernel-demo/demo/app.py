@@ -471,4 +471,4 @@ with tab4:
 # Footer
 # ---------------------------------------------------------------------------
 st.divider()
-st.caption("Built by [Your Name] | [github.com/AbhayRathi/optimalkern](https://github.com/AbhayRathi/optimalkern)")
+st.caption("Built by Abhay Rathi | [github.com/AbhayRathi/optimalkern](https://github.com/AbhayRathi/optimalkern)")

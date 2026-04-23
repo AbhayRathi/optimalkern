@@ -177,3 +177,17 @@ if __name__ == "__main__":
 
     label = "Helion kernel" if (HELION_AVAILABLE and DEVICE == "cuda") else "Helion (PyTorch fallback)"
     print(f"{label:<30} {helion_ms:<15.2f} {naive_ms / helion_ms:.2f}x")
+
+    # Save benchmark results for the Streamlit app
+    import json
+    from pathlib import Path
+
+    bench_out = [
+        {"method": "Naive PyTorch",  "time_ms": round(naive_ms, 2),    "speedup": 1.0},
+        {"method": "Fused (manual)", "time_ms": round(fused_ms, 2),    "speedup": round(naive_ms / fused_ms, 2)},
+        {"method": "torch.compile",  "time_ms": round(compiled_ms, 2), "speedup": round(naive_ms / compiled_ms, 2)},
+        {"method": label,            "time_ms": round(helion_ms, 2),   "speedup": round(naive_ms / helion_ms, 2)},
+    ]
+    bench_path = Path(__file__).parent / "bench_results.json"
+    bench_path.write_text(json.dumps(bench_out, indent=2), encoding="utf-8")
+    print(f"\nResults saved to {bench_path}")

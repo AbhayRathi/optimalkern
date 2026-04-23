@@ -133,7 +133,7 @@ def pipeline_fused(x: torch.Tensor) -> torch.Tensor:
 # torch.compile version of the fused pipeline
 try:
     pipeline_compiled = torch.compile(pipeline_fused)
-except (RuntimeError, AttributeError, ImportError):
+except (RuntimeError, AttributeError, ImportError, TypeError):
     # torch.compile may be unavailable on some builds; fall back transparently
     pipeline_compiled = pipeline_fused
 
