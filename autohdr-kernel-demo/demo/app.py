@@ -70,8 +70,11 @@ def naive_pipeline(x: torch.Tensor) -> torch.Tensor:
 
 def fused_pipeline(x: torch.Tensor) -> torch.Tensor:
     r, g, b = x[0], x[1], x[2]
-    r = r / (1.0 + r);  g = g / (1.0 + g);  b = b / (1.0 + b)
-    r = torch.clamp(r + 0.05, 0.0, 1.0);  b = torch.clamp(b - 0.025, 0.0, 1.0)
+    r = r / (1.0 + r)
+    g = g / (1.0 + g)
+    b = b / (1.0 + b)
+    r = torch.clamp(r + 0.05, 0.0, 1.0)
+    b = torch.clamp(b - 0.025, 0.0, 1.0)
     lum = 0.299 * r + 0.587 * g + 0.114 * b
     sat = 1.15
     r = torch.clamp(lum + sat * (r - lum), 0.0, 1.0)
@@ -89,8 +92,11 @@ def fused_pipeline(x: torch.Tensor) -> torch.Tensor:
 def helion_pipeline(x: torch.Tensor) -> torch.Tensor:
     """Helion-equivalent fused pipeline (element-wise only, no sharpen)."""
     r, g, b = x[0], x[1], x[2]
-    r = r / (1.0 + r);  g = g / (1.0 + g);  b = b / (1.0 + b)
-    r = torch.clamp(r + 0.05, 0.0, 1.0);  b = torch.clamp(b - 0.025, 0.0, 1.0)
+    r = r / (1.0 + r)
+    g = g / (1.0 + g)
+    b = b / (1.0 + b)
+    r = torch.clamp(r + 0.05, 0.0, 1.0)
+    b = torch.clamp(b - 0.025, 0.0, 1.0)
     lum = 0.299 * r + 0.587 * g + 0.114 * b
     sat = 1.15
     r = torch.clamp(lum + sat * (r - lum), 0.0, 1.0)

@@ -113,7 +113,8 @@ def batched_process(images: list[torch.Tensor]) -> tuple[list[torch.Tensor], flo
 # torch.compile version of the batched pipeline
 try:
     compiled_batch = torch.compile(batched_process)
-except Exception:
+except (RuntimeError, AttributeError, ImportError) as exc:
+    print(f"[WARNING] torch.compile not available ({exc}); using eager batched_process.")
     compiled_batch = batched_process
 
 

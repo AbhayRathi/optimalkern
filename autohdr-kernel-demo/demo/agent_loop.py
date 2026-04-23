@@ -137,7 +137,7 @@ def _run_kernel(code: str) -> tuple[float | None, str]:
         return None, f"No BENCHMARK_MS found in output:\n{stdout}"
     except subprocess.TimeoutExpired:
         return None, "Subprocess timed out after 120 s."
-    except Exception as exc:  # noqa: BLE001
+    except (subprocess.SubprocessError, ValueError, OSError) as exc:
         return None, str(exc)
 
 

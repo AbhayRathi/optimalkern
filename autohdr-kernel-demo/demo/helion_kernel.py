@@ -92,7 +92,6 @@ else:
     # ---------------------------------------------------------------------------
     # PyTorch fallback when Helion is unavailable or no CUDA
     # ---------------------------------------------------------------------------
-    import torch.nn.functional as F  # noqa: F401 – not needed here but kept for parity
 
     def fused_edit_kernel(
         x: torch.Tensor,
