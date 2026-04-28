@@ -155,7 +155,7 @@ def main() -> None:
 
     footnote = (
         "Adobe achieved 60% latency reduction on Firefly using this exact approach on H100s. "
-        "Source: NVIDIA Technical Blog."
+        "Source: NVIDIA Technical Blog (https://developer.nvidia.com/blog/)."
     )
     print(f"\nFootnote: {footnote}")
 

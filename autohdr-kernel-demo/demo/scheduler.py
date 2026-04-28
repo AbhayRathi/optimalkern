@@ -107,6 +107,7 @@ def simulate_naive(arrivals: list[int], demand: list[float]) -> dict:
 
 
 def simulate_predictive(arrivals: list[int], demand: list[float], non_urgent_jobs: list[int]) -> dict:
+    demand_work = demand.copy()
     backlog_gpu_minutes = 0.0
     deferred = defaultdict(float)
     total_gpu_hours = 0.0
@@ -121,12 +122,12 @@ def simulate_predictive(arrivals: list[int], demand: list[float], non_urgent_job
         peak_period = 15 <= hour <= 18
         if peak_period and arrivals[i] > 0 and non_urgent_jobs[i] > 0:
             fraction_non_urgent = non_urgent_jobs[i] / arrivals[i]
-            defer_amount = demand[i] * fraction_non_urgent * 0.70
-            demand[i] -= defer_amount
+            defer_amount = demand_work[i] * fraction_non_urgent * 0.70
+            demand_work[i] -= defer_amount
             deferred[i + 1] += defer_amount * 0.55
             deferred[i + 2] += defer_amount * 0.45
 
-        total_demand = backlog_gpu_minutes + demand[i] + deferred[i]
+        total_demand = backlog_gpu_minutes + demand_work[i] + deferred[i]
         needed_gpu = math.ceil(total_demand / 60.0)
 
         # Predictive policy: pre-warm before 3pm and cap peak fleet near 450-600.

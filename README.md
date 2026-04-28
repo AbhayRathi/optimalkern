@@ -70,7 +70,7 @@ Incoming Jobs ->| Layer 2: Job Router         |--> T4 / A100 / H100 tiering
 
 | Optimization | Daily Savings | Effort | Risk | Status |
 |---|---:|---|---|---|
-| FP8 Quant | $39,600 | 2 wks | Low | projected from measured FP16 |
+| FP8 Quant | $39,600 | 2 wks | Low | projected |
 | Job Router | $14,850 | 1 wk | Very Low | estimated/simulated |
 | Kernel Fusion | $6,682 | 1 wk | Low | measured when benchmark JSON exists |
 | Scheduling | $7,818 | 3 wks | Medium | estimated/simulated |

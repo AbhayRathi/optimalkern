@@ -20,8 +20,13 @@ def _load_or_benchmark() -> list[dict]:
         return json.loads(BENCH_PATH.read_text(encoding="utf-8"))
 
     print("bench_results.json not found; running local benchmark fallback.")
-    from baseline import pipeline_naive, pipeline_fused, pipeline_compiled, benchmark
-    from helion_kernel import fused_edit_kernel
+    try:
+        from baseline import pipeline_naive, pipeline_fused, pipeline_compiled, benchmark
+        from helion_kernel import fused_edit_kernel
+    except ImportError as exc:
+        raise ImportError(
+            "Fallback benchmarking requires local demo modules baseline.py and helion_kernel.py."
+        ) from exc
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     x = torch.rand(3, 720, 1280, device=device)

@@ -17,6 +17,8 @@ st.set_page_config(page_title="AutoHDR Kernel Optimization Demo", layout="wide",
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DEMO_DIR = Path(__file__).parent
+WARMTH_ADJUSTMENT = 0.05
+SATURATION_GAIN = 1.15
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -32,7 +34,7 @@ def _reinhard(x: torch.Tensor) -> torch.Tensor:
     return x / (1.0 + x)
 
 
-def _color_grade(x: torch.Tensor, warmth: float = 0.05, sat: float = 1.15) -> torch.Tensor:
+def _color_grade(x: torch.Tensor, warmth: float = WARMTH_ADJUSTMENT, sat: float = SATURATION_GAIN) -> torch.Tensor:
     r, g, b = x[0], x[1], x[2]
     r = r + warmth
     b = b - warmth * 0.5
@@ -53,14 +55,13 @@ def naive_pipeline(x: torch.Tensor) -> torch.Tensor:
 
 def helion_pipeline(x: torch.Tensor) -> torch.Tensor:
     r, g, b = x[0], x[1], x[2]
-    r = torch.clamp(r / (1.0 + r) + 0.05, 0.0, 1.0)
+    r = torch.clamp(r / (1.0 + r) + WARMTH_ADJUSTMENT, 0.0, 1.0)
     g = g / (1.0 + g)
-    b = torch.clamp(b / (1.0 + b) - 0.025, 0.0, 1.0)
+    b = torch.clamp(b / (1.0 + b) - (WARMTH_ADJUSTMENT * 0.5), 0.0, 1.0)
     lum = 0.299 * r + 0.587 * g + 0.114 * b
-    sat = 1.15
-    r = torch.clamp(lum + sat * (r - lum), 0.0, 1.0)
-    g = torch.clamp(lum + sat * (g - lum), 0.0, 1.0)
-    b = torch.clamp(lum + sat * (b - lum), 0.0, 1.0)
+    r = torch.clamp(lum + SATURATION_GAIN * (r - lum), 0.0, 1.0)
+    g = torch.clamp(lum + SATURATION_GAIN * (g - lum), 0.0, 1.0)
+    b = torch.clamp(lum + SATURATION_GAIN * (b - lum), 0.0, 1.0)
     return torch.stack([r, g, b], dim=0)
 
 
@@ -170,7 +171,7 @@ scheduler_data = _load_json(DEMO_DIR / "scheduler_results.json", _PLACEHOLDER_SC
 cost_data = _load_json(DEMO_DIR / "cost_results.json", _PLACEHOLDER_COST)
 
 if DEVICE == "cpu":
-    st.warning("⚠️ No GPU detected. Real timings require CUDA/H100 runs.")
+    st.warning("⚠️ No GPU detected. Displaying placeholder benchmark data. Run demo scripts on CUDA/H100 hardware for measured timings.")
 
 st.title("⚡ AutoHDR Kernel Optimization Demo")
 st.markdown("*6-layer architecture: measured where built, projected where specced.*")

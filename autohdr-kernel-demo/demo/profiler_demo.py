@@ -76,7 +76,7 @@ def main() -> None:
 
     sort_key = "cuda_time_total" if torch.cuda.is_available() else "cpu_time_total"
     table = prof.key_averages().table(sort_by=sort_key, row_limit=10)
-    print("\nLAYER 0 — AUTODHR PIPELINE PROFILER")
+    print("\nLAYER 0 — AUTOHDR PIPELINE PROFILER")
     print("====================================")
     print("Top 10 operations sorted by", sort_key)
     print(table)
