@@ -1,108 +1,129 @@
-# AutoHDR Kernel Optimization Demo
+# AutoHDR GPU Cost Reduction Demo (6 Layers)
 
-> Built in 48 hours to demonstrate GPU pipeline optimization
-> directly relevant to AutoHDR's architecture.
+This repo demonstrates a practical 6-layer optimization architecture for AutoHDR-scale workloads (up to 1000 H100 GPUs at peak, ~$99,000/day baseline).
 
-## The Business Problem
-- 128 GPUs × $3.50/hr × 24 hrs = ~$10,700/day in compute costs
-- At $0.37/edit, every efficiency gain is direct margin
-- 30-minute turnaround promise breaks under batch load without
-  smart scheduling
-- Premium $3–5/edit market requires faster, higher-quality diffusion inference
+## 6-Layer Architecture
 
-## What This Demonstrates
-
-### 1. Kernel Fusion
-AutoHDR's standard edit pipeline (tone map → color grade → sharpen →
-composite) likely runs as separate GPU passes today. Each pass = one full
-read + write from VRAM. Kernel fusion collapses N passes into 1 — same
-math, dramatically less memory traffic. Benchmarked across 4 methods
-from naive PyTorch to Helion.
-
-### 2. Agent-Driven Kernel Optimization
-An LLM agent iteratively writes, benchmarks, and improves GPU kernels
-automatically. Each iteration feeds profiler output back to Claude, which
-rewrites with targeted improvements. This loop could run nightly on
-AutoHDR's actual operations — the pipeline gets faster without anyone
-touching the code.
-
-### 3. Batch Architecture
-Demonstrates the throughput difference between sequential vs batched
-processing across N photos. Shows exactly where the 30-minute promise
-breaks at scale and how batching fixes it.
-
-## Project Structure
-
-```
-autohdr-kernel-demo/
-├── demo/
-│   ├── baseline.py        # Component 1 — naive / fused / compiled pipelines
-│   ├── helion_kernel.py   # Component 2 — Helion GPU kernel + 4-method bench
-│   ├── agent_loop.py      # Component 3 — Claude-driven iterative optimization
-│   ├── batch_demo.py      # Component 4 — sequential vs batched throughput
-│   └── app.py             # Component 5 — Streamlit demo app (4 tabs)
-└── assets/
-    ├── sample.jpg          # Synthetic interior placeholder image
-    └── generate_sample.py  # Script to regenerate sample.jpg
+```text
+                +------------------------------+
+Incoming Jobs ->| Layer 2: Job Router         |--> T4 / A100 / H100 tiering
+                +------------------------------+
+                              |
+                              v
+                +------------------------------+
+                | Layer 6: Predictive Scheduler|--> Peak flattening + pre-warm
+                +------------------------------+
+                              |
+                              v
+                +------------------------------+
+                | Layer 0: Profiler            |--> Find true bottleneck first
+                +------------------------------+
+                              |
+                              v
+                +------------------------------+
+                | Layer 1: FP8 Quantization    |--> Memory-bandwidth win
+                +------------------------------+
+                              |
+                              v
+                +------------------------------+
+                | Layer 3: Kernel Fusion       |--> Fewer VRAM passes
+                +------------------------------+
+                              |
+                              v
+                +------------------------------+
+                | Layers 4+5: Model-level bets |--> Distillation + speculative
+                +------------------------------+
 ```
 
-## Benchmark Results
-*(Placeholder — run on a GPU to fill with real numbers)*
+## Built vs Specced
 
-| Method          | Time (ms) | Speedup |
-|-----------------|-----------|---------|
-| Naive PyTorch   | [X]       | 1.0x    |
-| Fused (manual)  | [X]       | [X]x    |
-| torch.compile   | [X]       | [X]x    |
-| Helion kernel   | [X]       | [X]x    |
+### BUILT in code
+- **Layer 0**: `autohdr-kernel-demo/demo/profiler_demo.py`
+- **Layer 1**: `autohdr-kernel-demo/demo/fp8_demo.py`
+- **Layer 2**: `autohdr-kernel-demo/demo/job_router.py`
+- **Layer 3**: `autohdr-kernel-demo/demo/fusion_summary.py` (+ `baseline.py`, `helion_kernel.py`)
+- **Layer 6**: `autohdr-kernel-demo/demo/scheduler.py`
+- **Cost model**: `autohdr-kernel-demo/demo/cost_model.py`
+- **UI**: `autohdr-kernel-demo/demo/app.py`
 
-## How To Run
+### SPECCED (architectural only)
+- **Layer 4**: `autohdr-kernel-demo/demo/distillation_spec.py`
+- **Layer 5**: `autohdr-kernel-demo/demo/speculative_spec.py`
 
-### Install dependencies
+> Layers 4 and 5 are explicitly **specifications**, not implemented training/inference systems.
+
+## Real Benchmark Table (fill after GPU runs)
+
+| Layer | Metric | Value |
+|---|---|---|
+| Layer 0 Profiler | Dominant op | `[GPU_BOTTLENECK_OP]` |
+| Layer 1 FP8 | FP32 attention time | `[GPU_MS]` |
+| Layer 1 FP8 | FP16 attention time | `[GPU_MS]` |
+| Layer 1 FP8 | FP16+compile time | `[GPU_MS]` |
+| Layer 1 FP8 | FP8 projected time | `[GPU_MS]` |
+| Layer 3 Fusion | Naive pipeline time | `[GPU_MS]` |
+| Layer 3 Fusion | Best fused time | `[GPU_MS]` |
+| Layer 6 Scheduler | Naive peak GPUs | `[GPU_COUNT]` |
+| Layer 6 Scheduler | Predictive peak GPUs | `[GPU_COUNT]` |
+
+## Cost Model (measured + projected)
+
+| Optimization | Daily Savings | Effort | Risk | Status |
+|---|---:|---|---|---|
+| FP8 Quant | $39,600 | 2 wks | Low | projected from measured FP16 |
+| Job Router | $14,850 | 1 wk | Very Low | estimated/simulated |
+| Kernel Fusion | $6,682 | 1 wk | Low | measured when benchmark JSON exists |
+| Scheduling | $7,818 | 3 wks | Medium | estimated/simulated |
+| Distillation + Speculative | $11,250 | 8 wks | Medium | projected |
+| **TOTAL** | **$80,200/day** |  |  | mixed |
+| **MONTHLY** | **$2,406,000** |  |  | mixed |
+| **ANNUAL** | **$29,273,000** |  |  | mixed |
+
+## How to Run
+
+Install deps:
+
 ```bash
-pip install torch torchvision helion streamlit matplotlib pandas Pillow anthropic
+pip install -r autohdr-kernel-demo/requirements.txt
 ```
 
-### Run the Streamlit app (works on CPU with placeholder data)
-```bash
-streamlit run autohdr-kernel-demo/demo/app.py
-```
-
-### Generate real benchmark numbers (GPU required)
-
-Run **in order** on a CUDA-enabled machine:
+Run each layer script:
 
 ```bash
-# 1. Baseline benchmarks
+python autohdr-kernel-demo/demo/profiler_demo.py
+python autohdr-kernel-demo/demo/fp8_demo.py
+python autohdr-kernel-demo/demo/job_router.py
 python autohdr-kernel-demo/demo/baseline.py
-
-# 2. Helion kernel benchmark
 python autohdr-kernel-demo/demo/helion_kernel.py
-
-# 3. Agent optimization loop (requires ANTHROPIC_API_KEY)
-export ANTHROPIC_API_KEY="sk-ant-..."
-python autohdr-kernel-demo/demo/agent_loop.py
-
-# 4. Batch throughput demo
-python autohdr-kernel-demo/demo/batch_demo.py
-
-# 5. Launch the Streamlit app with real data
+python autohdr-kernel-demo/demo/fusion_summary.py
+python autohdr-kernel-demo/demo/distillation_spec.py
+python autohdr-kernel-demo/demo/speculative_spec.py
+python autohdr-kernel-demo/demo/scheduler.py
+python autohdr-kernel-demo/demo/cost_model.py
 streamlit run autohdr-kernel-demo/demo/app.py
 ```
 
-> **GPU Note:** CUDA is required for real benchmark numbers.
-> Use Google Colab (free T4) or Lambda Labs ($0.50/hr A10) if no local GPU.
+All generated `*_results.json` files are stored in `autohdr-kernel-demo/demo/` and auto-loaded by Streamlit.
 
-## The Bigger Opportunity
+## Exact Google Colab Commands
 
-80% of AutoHDR's GPU time lives in their Stable Diffusion pipeline —
-virtual staging and day-to-dusk both run 50 denoising steps, each with
-~16 attention layers. Each attention layer materialises a
-sequence_length × sequence_length matrix in VRAM. For a 512 px image
-that's 16M numbers written and read per layer, per step, per image.
+```bash
+!git clone https://github.com/AbhayRathi/optimalkern.git
+%cd optimalkern
+!pip install -r autohdr-kernel-demo/requirements.txt
 
-FlashAttention-style kernels never write that matrix. They tile the
-computation so intermediate results live in fast shared memory.
-Direct result: 2–4× throughput on diffusion jobs, which translates
-to sub-10-minute turnaround on virtual staging — a product
-transformation, not just an optimisation.
+!python autohdr-kernel-demo/demo/profiler_demo.py
+!python autohdr-kernel-demo/demo/fp8_demo.py
+!python autohdr-kernel-demo/demo/job_router.py
+!python autohdr-kernel-demo/demo/baseline.py
+!python autohdr-kernel-demo/demo/helion_kernel.py
+!python autohdr-kernel-demo/demo/fusion_summary.py
+!python autohdr-kernel-demo/demo/scheduler.py
+!python autohdr-kernel-demo/demo/cost_model.py
+```
+
+(Optional UI in Colab/local):
+
+```bash
+!streamlit run autohdr-kernel-demo/demo/app.py
+```
