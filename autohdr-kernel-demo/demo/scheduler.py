@@ -106,8 +106,8 @@ def simulate_naive(arrivals: list[int], demand: list[float]) -> dict:
     }
 
 
-def simulate_predictive(arrivals: list[int], demand: list[float], non_urgent_jobs: list[int]) -> dict:
-    demand_work = demand.copy()
+def simulate_predictive(arrivals: list[int], hourly_demand: list[float], non_urgent_jobs: list[int]) -> dict:
+    demand_work = hourly_demand.copy()
     backlog_gpu_minutes = 0.0
     deferred = defaultdict(float)
     total_gpu_hours = 0.0

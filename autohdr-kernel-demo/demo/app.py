@@ -34,13 +34,17 @@ def _reinhard(x: torch.Tensor) -> torch.Tensor:
     return x / (1.0 + x)
 
 
-def _color_grade(x: torch.Tensor, warmth: float = WARMTH_ADJUSTMENT, sat: float = SATURATION_GAIN) -> torch.Tensor:
+def _color_grade(
+    x: torch.Tensor,
+    warmth: float = WARMTH_ADJUSTMENT,
+    saturation_gain: float = SATURATION_GAIN,
+) -> torch.Tensor:
     r, g, b = x[0], x[1], x[2]
     r = r + warmth
     b = b - warmth * 0.5
     x = torch.stack([r, g, b], dim=0)
     lum = 0.299 * x[0] + 0.587 * x[1] + 0.114 * x[2]
-    return torch.clamp(lum.unsqueeze(0) + sat * (x - lum.unsqueeze(0)), 0.0, 1.0)
+    return torch.clamp(lum.unsqueeze(0) + saturation_gain * (x - lum.unsqueeze(0)), 0.0, 1.0)
 
 
 def _sharpen(x: torch.Tensor) -> torch.Tensor:
