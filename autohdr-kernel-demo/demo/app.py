@@ -87,7 +87,10 @@ def _load_uploaded(file_bytes: bytes) -> torch.Tensor:
 def _synthetic_image(h: int = 512, w: int = 768) -> torch.Tensor:
     y = torch.linspace(0.3, 1.0, h, device=DEVICE).unsqueeze(1).expand(h, w)
     x = torch.linspace(0.5, 1.5, w, device=DEVICE).unsqueeze(0).expand(h, w)
-    return torch.stack([torch.clamp(x * 0.9, 0, 2), torch.clamp(y * 0.7, 0, 2), torch.clamp(y * 0.4 + 0.1, 0, 2)], dim=0)
+    r_channel = torch.clamp(x * 0.9, 0, 2)
+    g_channel = torch.clamp(y * 0.7, 0, 2)
+    b_channel = torch.clamp(y * 0.4 + 0.1, 0, 2)
+    return torch.stack([r_channel, g_channel, b_channel], dim=0)
 
 
 _PLACEHOLDER_BENCH = [
@@ -276,8 +279,8 @@ with tab7:
         st.info("Showing placeholder data. Run `python demo/job_router.py` to populate simulation outputs.")
     dist = router_data.get("job_distribution", {})
     if dist:
-        pie_df = pd.DataFrame({"job_type": list(dist.keys()), "count": list(dist.values())}).set_index("job_type")
-        st.bar_chart(pie_df)
+        job_dist_df = pd.DataFrame({"job_type": list(dist.keys()), "count": list(dist.values())}).set_index("job_type")
+        st.bar_chart(job_dist_df)
     cost_df = pd.DataFrame(
         [
             {"Strategy": "Naive (all H100)", "Cost USD": router_data.get("naive_cost_usd", 0)},

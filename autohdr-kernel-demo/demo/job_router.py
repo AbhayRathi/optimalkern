@@ -71,6 +71,7 @@ def simulate_queue(n_jobs: int = 10000, seed: int = 42) -> dict:
         "routed_cost_usd": round(routed_cost, 2),
         "savings_usd": round(savings, 2),
         "savings_pct": round(savings_pct, 2),
+        "simulated": True,
         "measured": False,
         "note": "Cost simulation using provided per-job H100 runtimes and GPU hourly pricing.",
     }

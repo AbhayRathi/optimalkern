@@ -55,6 +55,7 @@ def pipeline(x: torch.Tensor) -> torch.Tensor:
     x = reinhard_tonemap(x)
     x = color_grade(x)
     x = sharpen(x)
+    # Intentionally executed for profiling to expose SD-style attention bottlenecks.
     _ = simulated_attention(x)
     return x
 

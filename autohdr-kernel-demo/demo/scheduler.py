@@ -163,8 +163,10 @@ def simulate_predictive(arrivals: list[int], hourly_demand: list[float], non_urg
 
 def main() -> None:
     arrivals, demand, non_urgent = sample_hourly_demand()
-    naive = simulate_naive(arrivals, demand.copy())
-    predictive = simulate_predictive(arrivals, demand.copy(), non_urgent)
+    naive_demand = demand.copy()
+    predictive_demand = demand.copy()
+    naive = simulate_naive(arrivals, naive_demand)
+    predictive = simulate_predictive(arrivals, predictive_demand, non_urgent)
 
     result = {
         "days": DAYS,

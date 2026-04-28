@@ -35,22 +35,7 @@ def _load_or_benchmark() -> list[dict]:
     naive_ms = benchmark(pipeline_naive, x, n=n)
     fused_ms = benchmark(pipeline_fused, x, n=n)
     compiled_ms = benchmark(pipeline_compiled, x, n=n)
-
-    def bench_local(fn):
-        for _ in range(3):
-            fn(x)
-        if x.is_cuda:
-            torch.cuda.synchronize()
-        import time
-
-        t0 = time.perf_counter()
-        for _ in range(n):
-            fn(x)
-        if x.is_cuda:
-            torch.cuda.synchronize()
-        return (time.perf_counter() - t0) / n * 1000.0
-
-    helion_ms = bench_local(fused_edit_kernel)
+    helion_ms = benchmark(fused_edit_kernel, x, n=n)
 
     results = [
         {"method": "Naive PyTorch", "time_ms": round(naive_ms, 3), "speedup": 1.0},
