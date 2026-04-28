@@ -19,6 +19,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DEMO_DIR = Path(__file__).parent
 WARMTH_ADJUSTMENT = 0.05
 SATURATION_GAIN = 1.15
+BLUE_WARMTH_FACTOR = 0.5
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -41,7 +42,7 @@ def _color_grade(
 ) -> torch.Tensor:
     r, g, b = x[0], x[1], x[2]
     r = r + warmth
-    b = b - warmth * 0.5
+    b = b - warmth * BLUE_WARMTH_FACTOR
     x = torch.stack([r, g, b], dim=0)
     lum = 0.299 * x[0] + 0.587 * x[1] + 0.114 * x[2]
     return torch.clamp(lum.unsqueeze(0) + saturation_gain * (x - lum.unsqueeze(0)), 0.0, 1.0)
@@ -61,7 +62,7 @@ def helion_pipeline(x: torch.Tensor) -> torch.Tensor:
     r, g, b = x[0], x[1], x[2]
     r = torch.clamp(r / (1.0 + r) + WARMTH_ADJUSTMENT, 0.0, 1.0)
     g = g / (1.0 + g)
-    b = torch.clamp(b / (1.0 + b) - (WARMTH_ADJUSTMENT * 0.5), 0.0, 1.0)
+    b = torch.clamp(b / (1.0 + b) - (WARMTH_ADJUSTMENT * BLUE_WARMTH_FACTOR), 0.0, 1.0)
     lum = 0.299 * r + 0.587 * g + 0.114 * b
     r = torch.clamp(lum + SATURATION_GAIN * (r - lum), 0.0, 1.0)
     g = torch.clamp(lum + SATURATION_GAIN * (g - lum), 0.0, 1.0)

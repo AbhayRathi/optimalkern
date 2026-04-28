@@ -107,6 +107,7 @@ def simulate_naive(arrivals: list[int], demand: list[float]) -> dict:
 
 
 def simulate_predictive(arrivals: list[int], hourly_demand: list[float], non_urgent_jobs: list[int]) -> dict:
+    # Work on a local mutable copy so deferred-load reshaping stays side-effect free for callers.
     demand_work = hourly_demand.copy()
     backlog_gpu_minutes = 0.0
     deferred = defaultdict(float)
