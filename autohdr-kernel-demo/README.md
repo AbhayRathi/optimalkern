@@ -1,7 +1,7 @@
 # AutoHDR Kernel Optimization Demo
 
-> Built to demonstrate GPU pipeline optimization directly relevant to
-> AutoHDR's real estate photo editing architecture.
+> 6-layer GPU cost-reduction architecture: runnable demos, real Triton kernels,
+> FP8 benchmarks, LLM-guided autotuning, and integrated cost modeling.
 
 ## The Business Problem
 
@@ -10,108 +10,85 @@
 - 30-minute turnaround promise breaks under batch load without smart scheduling
 - Premium $3–5/edit market requires faster, higher-quality diffusion inference
 
-## What This Demonstrates
+## Architecture Overview
 
-### 1. Kernel Fusion (`demo/baseline.py`, `demo/helion_kernel.py`)
+| Layer | File | What it does |
+|---|---|---|
+| 1. Kernel Fusion | `triton_kernels/fused_ops.py` | Fused tone-map + color-grade + sharpen in one Triton kernel (2 fewer DRAM roundtrips) |
+| 2. FP8 Precision | `fp8_demo.py`, `triton_kernels/fp8_gemm_bench.py` | Real `torch._scaled_mm` FP8 measurement on H100 SM90; fallback projection on other hardware |
+| 3. Job Routing | `job_router.py` | Simulates 10k jobs routed across T4/A100/H100 by complexity tier |
+| 4. Predictive Scheduling | `scheduler.py` | 30-day demand simulation: reactive vs. predictive GPU scheduling |
+| 5. Model Compression | `distillation_spec.py`, `speculative_spec.py` | Architecture specs for distillation and speculative decoding |
+| 6. Cost Aggregation | `cost_model.py`, `fusion_summary.py` | Daily/monthly/annual savings waterfall across all layers |
 
-AutoHDR's standard edit pipeline (tone map → color grade → sharpen →
-composite) likely runs as separate GPU passes today. Each pass = one full
-read + write from VRAM. Kernel fusion collapses N passes into 1 — same
-math, dramatically less memory traffic. Benchmarked across 4 methods:
-naive PyTorch → fused manual → `torch.compile` → Helion.
+> **Note on `helion_kernel.py`:** Helion is a pre-release compiler not yet
+> available on PyPI. The file always falls back to a PyTorch stub at runtime.
+> It is retained as a future integration point for when Helion stabilizes.
 
-### 2. Agent-Driven Kernel Optimization (`demo/agent_loop.py`)
-
-An LLM agent (Claude `claude-opus-4-5`) iteratively writes, benchmarks,
-and improves GPU kernels automatically. Each iteration feeds the profiler
-result back to Claude, which rewrites with targeted improvements. The loop
-runs 3 iterations by default and saves history to `demo/agent_results.json`
-for display in the Streamlit app.
-
-### 3. Batch Architecture (`demo/batch_demo.py`)
-
-Compares sequential, batched, and `torch.compile`d batched processing across
-N ∈ {1, 4, 8, 16, 32} photos. Shows exactly where the 30-minute promise
-breaks at scale and how batching fixes it. Results saved to
-`demo/batch_results.json`.
-
-### 4. Streamlit Demo App (`demo/app.py`)
-
-Four-tab interactive app:
-- **📸 Visual Results** — upload a photo or use the synthetic placeholder
-- **⚡ Benchmark Results** — 4-method comparison table + bar chart
-- **🤖 Agent Optimization Loop** — iteration-by-iteration improvement chart
-- **🏗️ Batch Architecture** — total-time and per-photo-time charts
-
-Works on CPU with placeholder data; shows real numbers after running the
-benchmark scripts on a GPU.
+Supporting files: `baseline.py` (PyTorch benchmark + CUDA Graph), `profiler_demo.py`
+(torch.profiler pipeline with real SDPA attention), `agent_loop.py` (LLM-guided
+kernel autotuning with optional Nsight Compute hardware feedback), `app.py`
+(9-tab Streamlit dashboard).
 
 ## Folder Structure
 
-```
+```text
 autohdr-kernel-demo/
-├── README.md               ← you are here
-├── requirements.txt
 ├── demo/
-│   ├── baseline.py         # naive / fused / torch.compile pipelines + benchmark
-│   ├── helion_kernel.py    # @helion.kernel fused GPU kernel + 4-method comparison
-│   ├── agent_loop.py       # Claude iterative kernel optimization loop
-│   ├── batch_demo.py       # sequential vs batched vs compiled_batch throughput
-│   └── app.py              # Streamlit demo (4 tabs)
-└── assets/
-    ├── sample.jpg           # synthetic warm-toned interior placeholder
-    └── generate_sample.py   # regenerate sample.jpg
+│   ├── triton_kernels/
+│   │   ├── __init__.py
+│   │   ├── fused_ops.py          # Triton fused kernel (Layer 1)
+│   │   └── fp8_gemm_bench.py     # Real FP8 GEMM benchmark (H100 only)
+│   ├── baseline.py               # PyTorch benchmark + CUDA Graph
+│   ├── profiler_demo.py          # torch.profiler pipeline + SDPA attention
+│   ├── fp8_demo.py               # FP8 precision layer (measured or projected)
+│   ├── job_router.py             # Job routing simulation
+│   ├── scheduler.py              # Predictive scheduling simulation
+│   ├── cost_model.py             # Cost aggregation waterfall
+│   ├── fusion_summary.py         # Fusion savings summary
+│   ├── distillation_spec.py      # Distillation architecture spec
+│   ├── speculative_spec.py       # Speculative decoding spec
+│   ├── agent_loop.py             # LLM-guided kernel autotuning
+│   └── app.py                    # Streamlit dashboard (9 tabs)
+├── requirements.txt
+└── README.md
 ```
 
 ## Quick Start
 
-### Install dependencies
-
 ```bash
+# 1. Install dependencies
 pip install -r requirements.txt
-```
 
-### Run the Streamlit app (CPU-safe, uses placeholder data)
-
-```bash
-streamlit run demo/app.py
-```
-
-### Generate real benchmark numbers (CUDA GPU required)
-
-Run **in this order** on a CUDA-enabled machine:
-
-```bash
-# 1. Kernel-fusion benchmarks → prints table
+# 2. Run simulations (no GPU required)
 python demo/baseline.py
+python demo/job_router.py
+python demo/scheduler.py
+python demo/cost_model.py
 
-# 2. Helion kernel comparison → saves demo/bench_results.json
-python demo/helion_kernel.py
-
-# 3. Agent optimization loop (set API key first)
-export ANTHROPIC_API_KEY="sk-ant-..."
-python demo/agent_loop.py          # saves demo/agent_results.json
-
-# 4. Batch throughput demo → saves demo/batch_results.json
-python demo/batch_demo.py
-
-# 5. Launch app with real numbers
+# 3. Run the Streamlit dashboard
 streamlit run demo/app.py
-```
 
-> **No GPU?** Use [Google Colab](https://colab.research.google.com) (free T4)
-> or [Lambda Labs](https://lambdalabs.com) (~$0.50/hr A10).
+# 4. H100 ONLY — real kernel benchmarks
+python demo/triton_kernels/fp8_gemm_bench.py   # real FP8 GEMM
+python demo/triton_kernels/fused_ops.py        # real Triton fusion speedup
+python demo/profiler_demo.py                   # full pipeline profiler trace
+
+# 5. LLM kernel autotuning (requires ANTHROPIC_API_KEY; ncu optional for H100 feedback)
+python demo/agent_loop.py
+```
 
 ## Benchmark Results
 
-*(Placeholder — run the scripts above on a GPU to fill in real numbers)*
+| Pipeline | Hardware | Time (ms) | Notes |
+|---|---|---|---|
+| Naive unfused (FP32) | H100 SXM5 | [GPU_MS] | 3 separate DRAM passes |
+| Fused Triton kernel (FP16) | H100 SXM5 | [GPU_MS] | 1 DRAM pass, 2 roundtrips saved |
+| torch.compile | H100 SXM5 | [GPU_MS] | Inductor backend |
+| FP8 GEMM (E4M3) | H100 SXM5 | [GPU_MS] | torch._scaled_mm measured |
+| FP8 GEMM (E4M3) | non-H100 | [PROJECTED] | bandwidth model fallback |
 
-| Method          | Time (ms) | Speedup |
-|-----------------|-----------|---------|
-| Naive PyTorch   | [X]       | 1.00×   |
-| Fused (manual)  | [X]       | [X]×    |
-| torch.compile   | [X]       | [X]×    |
-| Helion kernel   | [X]       | [X]×    |
+[GPU_MS] = fill in after running on H100. See `fp8_gemm_bench.py` and `fused_ops.py`.
 
 ## The Bigger Opportunity
 

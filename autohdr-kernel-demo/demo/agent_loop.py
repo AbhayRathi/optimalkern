@@ -12,6 +12,8 @@ Run on a GPU:
     python demo/agent_loop.py
 """
 
+import csv
+import io
 import json
 import os
 import re
@@ -21,6 +23,42 @@ import textwrap
 import time
 from pathlib import Path
 from typing import Any
+
+_NCU_METRICS = ",".join([
+    "sm__throughput.avg.pct_of_peak_sustained_elapsed",
+    "sm__warps_active.avg.pct_of_peak_sustained_active",
+    "l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum",
+    "gpu__time_duration.sum",
+])
+
+
+def _profile_with_ncu(script_path: str) -> dict | None:
+    """
+    Run Nsight Compute CLI on a script and return hardware metrics as a dict.
+    Returns None if ncu is not installed or profiling fails.
+    """
+    ncu_bin = "ncu"
+    if not any(
+        os.path.isfile(os.path.join(p, ncu_bin))
+        for p in os.environ.get("PATH", "").split(os.pathsep)
+    ):
+        return None
+    try:
+        result = subprocess.run(
+            [ncu_bin, "--metrics", _NCU_METRICS, "--csv",
+             "--target-processes", "all", "python", script_path],
+            capture_output=True, text=True, timeout=180,
+        )
+        reader = csv.DictReader(io.StringIO(result.stdout))
+        metrics: dict = {}
+        for row in reader:
+            name = row.get("Metric Name", "").strip()
+            val = row.get("Metric Value", "N/A").strip()
+            if name:
+                metrics[name] = val
+        return metrics if metrics else None
+    except Exception:
+        return None
 
 # ---------------------------------------------------------------------------
 # Optional: Anthropic client
@@ -68,6 +106,7 @@ def _build_user_prompt(
     previous_ms: float | None,
     baseline_ms: float,
     iteration: int,
+    hw_metrics: dict | None = None,
 ) -> str:
     """Build the user-facing prompt for Claude."""
     if iteration == 1 or previous_code is None:
@@ -77,6 +116,23 @@ def _build_user_prompt(
             f"Previous kernel code:\n\n{previous_code}\n\n"
             f"Previous benchmark result: {previous_ms:.2f} ms"
         )
+
+    hw_section = ""
+    if hw_metrics:
+        sm_util = hw_metrics.get("sm__throughput.avg.pct_of_peak_sustained_elapsed", "unknown")
+        occupancy = hw_metrics.get("sm__warps_active.avg.pct_of_peak_sustained_active", "unknown")
+        mem_load = hw_metrics.get("l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum", "unknown")
+        hw_section = f"""
+NVIDIA Nsight Compute hardware metrics (H100 SXM5):
+  • SM Throughput : {sm_util}%  (target: >80%)
+  • Warp Occupancy: {occupancy}%  (target: >70%)
+  • L1 Global Loads: {mem_load} bytes
+
+H100 peak specs: 3.35 TB/s HBM3 bandwidth, 989 TFLOPS FP16.
+The lowest metric above indicates the primary bottleneck. Focus your
+optimization on fixing exactly that bottleneck. Do not optimize
+metrics that are already near target.
+"""
 
     return textwrap.dedent(f"""
         Write a Python function called `fused_edit_kernel(x, warmth=0.05, sat=1.15)` that implements:
@@ -94,6 +150,8 @@ def _build_user_prompt(
         Baseline to beat: {baseline_ms:.2f} ms
 
         {history_section}
+
+        {hw_section}
 
         Return ONLY raw Python code — no markdown, no backticks, no explanation.
     """).strip()
@@ -114,10 +172,10 @@ def _extract_code(response_text: str) -> str:
     return text
 
 
-def _run_kernel(code: str) -> tuple[float | None, str]:
+def _run_kernel(code: str) -> tuple[float | None, str, str]:
     """
     Write kernel code + bench block to a temp file, execute via subprocess.
-    Returns (benchmark_ms, stdout) or (None, error_message) on failure.
+    Returns (benchmark_ms, stdout, script_path) or (None, error_message, script_path) on failure.
     """
     tmp_path = Path("/tmp/agent_kernel_candidate.py")
     tmp_path.write_text(code + _BENCH_BLOCK, encoding="utf-8")
@@ -133,12 +191,12 @@ def _run_kernel(code: str) -> tuple[float | None, str]:
         for line in stdout.splitlines():
             if line.startswith("BENCHMARK_MS:"):
                 ms = float(line.split(":")[1])
-                return ms, stdout
-        return None, f"No BENCHMARK_MS found in output:\n{stdout}"
+                return ms, stdout, str(tmp_path)
+        return None, f"No BENCHMARK_MS found in output:\n{stdout}", str(tmp_path)
     except subprocess.TimeoutExpired:
-        return None, "Subprocess timed out after 120 s."
+        return None, "Subprocess timed out after 120 s.", str(tmp_path)
     except (subprocess.SubprocessError, ValueError, OSError) as exc:
-        return None, str(exc)
+        return None, str(exc), str(tmp_path)
 
 
 def run_agent_loop(
@@ -181,6 +239,7 @@ def run_agent_loop(
     best_code: str = ""
     prev_code: str | None = None
     prev_ms: float | None = None
+    prev_hw_metrics: dict | None = None
 
     print(f"\n{'='*60}")
     print(f"Agent Kernel Optimization Loop  ({n_iterations} iterations)")
@@ -197,6 +256,7 @@ def run_agent_loop(
             previous_ms=prev_ms,
             baseline_ms=baseline_ms,
             iteration=i,
+            hw_metrics=prev_hw_metrics,
         )
 
         print("  Querying Claude claude-opus-4-5…", end=" ", flush=True)
@@ -215,7 +275,8 @@ def run_agent_loop(
 
         # 2. Benchmark the candidate kernel
         print("  Benchmarking candidate kernel…", end=" ", flush=True)
-        ms, output = _run_kernel(candidate_code)
+        ms, output, tmp_kernel_path = _run_kernel(candidate_code)
+        hw_metrics = _profile_with_ncu(tmp_kernel_path)  # None if ncu unavailable
 
         if ms is None:
             print("FAILED")
@@ -236,6 +297,8 @@ def run_agent_loop(
                 "speedup": round(speedup, 4),
                 "kernel_code": candidate_code,
             }
+            if hw_metrics is not None:
+                record["hw_metrics"] = hw_metrics
             if ms < best_ms:
                 best_ms = ms
                 best_code = candidate_code
@@ -243,6 +306,7 @@ def run_agent_loop(
         history.append(record)
         prev_code = candidate_code
         prev_ms = ms
+        prev_hw_metrics = hw_metrics
 
     # Summary
     print(f"\n{'='*60}")
