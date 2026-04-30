@@ -35,28 +35,38 @@ def sharpen(x: torch.Tensor) -> torch.Tensor:
     return F.conv2d(x, kernel, padding=1, groups=3)
 
 
-def simulated_attention(x: torch.Tensor) -> torch.Tensor:
-    b, _, h, w = x.shape
-    seq = h * w
-    tokens = x.view(b, 3, seq).transpose(1, 2).contiguous()
-    proj = torch.randn(3, 128, device=x.device, dtype=x.dtype)
-    q = tokens @ proj
-    k = tokens @ proj
-    v = tokens @ proj
-    scale = q.shape[-1] ** -0.5
-    attn = torch.bmm(q, k.transpose(1, 2)) * scale
-    probs = torch.softmax(attn, dim=-1)
-    out = torch.bmm(probs, v)
-    out = out.transpose(1, 2).view(b, 128, h, w)
-    return out.mean(dim=1, keepdim=True)
+def real_triton_attention(x: torch.Tensor) -> torch.Tensor:
+    """
+    Real scaled dot-product attention using PyTorch 2.x SDPA
+    (dispatches to FlashAttention kernel if available on the device).
+    Falls back to math impl on CPU.
+    """
+    B, C, H, W = x.shape
+    seq = H * W
+    n_heads = 8
+    head_dim = max(C // n_heads, 16)
+    proj_dim = n_heads * head_dim
+
+    tokens = x.reshape(B, C, seq).permute(0, 2, 1)  # [B, seq, C]
+    q_proj = torch.nn.Linear(C, proj_dim, bias=False, device=x.device, dtype=x.dtype)
+    k_proj = torch.nn.Linear(C, proj_dim, bias=False, device=x.device, dtype=x.dtype)
+    v_proj = torch.nn.Linear(C, proj_dim, bias=False, device=x.device, dtype=x.dtype)
+
+    q = q_proj(tokens).reshape(B, seq, n_heads, head_dim).permute(0, 2, 1, 3)
+    k = k_proj(tokens).reshape(B, seq, n_heads, head_dim).permute(0, 2, 1, 3)
+    v = v_proj(tokens).reshape(B, seq, n_heads, head_dim).permute(0, 2, 1, 3)
+
+    with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=True, enable_mem_efficient=True):
+        out = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=False)
+
+    return out.permute(0, 2, 1, 3).reshape(B, seq, proj_dim).permute(0, 2, 1).reshape(B, proj_dim, H, W)
 
 
 def pipeline(x: torch.Tensor) -> torch.Tensor:
     x = reinhard_tonemap(x)
     x = color_grade(x)
     x = sharpen(x)
-    # Intentionally executed for profiling to expose SD-style attention bottlenecks.
-    _ = simulated_attention(x)
+    _ = real_triton_attention(x)
     return x
 
 
@@ -64,7 +74,7 @@ def main() -> None:
     if DEVICE == "cpu":
         print("[WARNING] CUDA not available. Profiling CPU only; run on GPU for CUDA timing.")
 
-    x = torch.rand(1, 3, 64, 64, device=DEVICE)
+    x = torch.rand(1, 3, 512, 512, device=DEVICE)
     activities = [torch.profiler.ProfilerActivity.CPU]
     if torch.cuda.is_available():
         activities.insert(0, torch.profiler.ProfilerActivity.CUDA)
