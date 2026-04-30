@@ -31,10 +31,10 @@ def _fused_autohdr_kernel(
     # Pass 1: Tone map (gamma correction)
     x = tl.math.pow(tl.math.max(x, 0.0), gamma)
 
-    # Pass 2: Color grade (saturation boost via luma blend)
-    # Simplified: treats each element as luma for single-channel fuse
-    luma = 0.299 * x + 0.587 * x + 0.114 * x
-    x = luma + sat_scale * (x - luma)
+    # Pass 2: Color grade (saturation boost via luma proxy)
+    # Since kernel is 1D (per-element), simulate single-channel luma.
+    luma = x
+    x = x + (sat_scale - 1.0) * (x - 0.5)
 
     # Pass 3: Clamp (unsharp approximation)
     x = tl.math.min(tl.math.max(x, 0.0), 1.0)

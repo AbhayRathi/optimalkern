@@ -3,13 +3,32 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 
+try:
+    from triton_kernels.fused_ops import fused_autohdr_pass
+    _TRITON_AVAILABLE = True
+except (ImportError, Exception):
+    _TRITON_AVAILABLE = False
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 OUT_PATH = Path(__file__).parent / "profiler_results.json"
+_attn_projs: dict = {}
+
+
+def _get_attn_projs(C: int, proj_dim: int, device, dtype):
+    key = (C, proj_dim, str(device), str(dtype))
+    if key not in _attn_projs:
+        _attn_projs[key] = (
+            torch.nn.Linear(C, proj_dim, bias=False, device=device, dtype=dtype),
+            torch.nn.Linear(C, proj_dim, bias=False, device=device, dtype=dtype),
+            torch.nn.Linear(C, proj_dim, bias=False, device=device, dtype=dtype),
+        )
+    return _attn_projs[key]
 
 
 def reinhard_tonemap(x: torch.Tensor) -> torch.Tensor:
@@ -48,9 +67,7 @@ def real_triton_attention(x: torch.Tensor) -> torch.Tensor:
     proj_dim = n_heads * head_dim
 
     tokens = x.reshape(B, C, seq).permute(0, 2, 1)  # [B, seq, C]
-    q_proj = torch.nn.Linear(C, proj_dim, bias=False, device=x.device, dtype=x.dtype)
-    k_proj = torch.nn.Linear(C, proj_dim, bias=False, device=x.device, dtype=x.dtype)
-    v_proj = torch.nn.Linear(C, proj_dim, bias=False, device=x.device, dtype=x.dtype)
+    q_proj, k_proj, v_proj = _get_attn_projs(C, proj_dim, x.device, x.dtype)
 
     q = q_proj(tokens).reshape(B, seq, n_heads, head_dim).permute(0, 2, 1, 3)
     k = k_proj(tokens).reshape(B, seq, n_heads, head_dim).permute(0, 2, 1, 3)
@@ -70,25 +87,35 @@ def pipeline(x: torch.Tensor) -> torch.Tensor:
     return x
 
 
-def main() -> None:
-    if DEVICE == "cpu":
-        print("[WARNING] CUDA not available. Profiling CPU only; run on GPU for CUDA timing.")
+def pipeline_fused(x: torch.Tensor) -> torch.Tensor:
+    if _TRITON_AVAILABLE and x.is_cuda:
+        x = fused_autohdr_pass(x)
+    else:
+        x = reinhard_tonemap(x)
+        x = color_grade(x)
+        x = sharpen(x)
+    _ = real_triton_attention(x)
+    return x
 
-    x = torch.rand(1, 3, 512, 512, device=DEVICE)
-    activities = [torch.profiler.ProfilerActivity.CPU]
-    if torch.cuda.is_available():
-        activities.insert(0, torch.profiler.ProfilerActivity.CUDA)
 
+def _profile_pipeline(
+    name: str,
+    fn,
+    x: torch.Tensor,
+    activities: list[torch.profiler.ProfilerActivity],
+    sort_key: str,
+) -> dict:
+    t0 = time.perf_counter()
     with torch.profiler.profile(activities=activities, record_shapes=True) as prof:
         for _ in range(8):
-            pipeline(x)
+            fn(x)
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
-    sort_key = "cuda_time_total" if torch.cuda.is_available() else "cpu_time_total"
     table = prof.key_averages().table(sort_by=sort_key, row_limit=10)
-    print("\nLAYER 0 — AUTOHDR PIPELINE PROFILER")
-    print("====================================")
+    print(f"\n{name}")
+    print("=" * len(name))
     print("Top 10 operations sorted by", sort_key)
     print(table)
 
@@ -107,13 +134,50 @@ def main() -> None:
 
     dominant = top[0]["op"] if top else "N/A"
     print(f"\nDominant bottleneck operation: {dominant}")
+    return {
+        "name": name,
+        "dominant_op": dominant,
+        "top_ops": top,
+        "elapsed_ms": round(elapsed_ms, 3),
+    }
+
+
+def main() -> None:
+    if DEVICE == "cpu":
+        print("[WARNING] CUDA not available. Profiling CPU only; run on GPU for CUDA timing.")
+
+    x = torch.rand(1, 3, 512, 512, device=DEVICE)
+    activities = [torch.profiler.ProfilerActivity.CPU]
+    if torch.cuda.is_available():
+        activities.insert(0, torch.profiler.ProfilerActivity.CUDA)
+
+    sort_key = "cuda_time_total" if torch.cuda.is_available() else "cpu_time_total"
+    print("\nLAYER 0 — AUTOHDR PIPELINE PROFILER")
+    print("====================================")
+    unfused = _profile_pipeline("Unfused pipeline", pipeline, x, activities, sort_key)
+    fused = _profile_pipeline("Fused pipeline", pipeline_fused, x, activities, sort_key)
+    fused_speedup = (
+        round(unfused["elapsed_ms"] / fused["elapsed_ms"], 4)
+        if fused["elapsed_ms"] > 0
+        else None
+    )
+    print("\nPipeline comparison")
+    print("===================")
+    print(f"Unfused elapsed time: {unfused['elapsed_ms']:.3f} ms")
+    print(f"Fused elapsed time:   {fused['elapsed_ms']:.3f} ms")
+    if fused_speedup is not None:
+        print(f"Estimated fused speedup:     {fused_speedup:.4f}x")
 
     payload = {
         "device": DEVICE,
         "sort_key": sort_key,
-        "dominant_op": dominant,
-        "top_ops": top,
-        "note": "Measured with torch.profiler before optimization.",
+        "dominant_op": unfused["dominant_op"],
+        "top_ops": unfused["top_ops"],
+        "unfused": unfused,
+        "fused": fused,
+        "fused_speedup": fused_speedup,
+        "triton_available": _TRITON_AVAILABLE,
+        "note": "Measured with torch.profiler before and after fused kernel integration.",
     }
     OUT_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"Saved results to {OUT_PATH}")
