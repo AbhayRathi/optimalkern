@@ -33,7 +33,6 @@ def _fused_autohdr_kernel(
 
     # Pass 2: Color grade (saturation boost via luma proxy)
     # Since kernel is 1D (per-element), simulate single-channel luma.
-    luma = x
     x = x + (sat_scale - 1.0) * (x - 0.5)
 
     # Pass 3: Clamp (unsharp approximation)
@@ -52,7 +51,6 @@ def fused_autohdr_pass(
     x: any shape float16/float32 CUDA tensor.
     """
     assert x.is_cuda, "Input must be on CUDA"
-    out = torch.empty_like(x)
     n = x.numel()
     x_f = x.float().contiguous()
     out_f = torch.empty_like(x_f)
